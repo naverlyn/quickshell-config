@@ -12,6 +12,77 @@ Scope {
   property var theme: DefaultTheme {}
   property string font: "Hack Nerd Font"
   property bool barVisible: true
+  property string memoryUsage: "0.0 / 0 GiB (-100%)"
+  property string diskUsage: "Loading..."
+  property string weatherInfo: "Loading..."
+
+  // Memory fetch process
+  Process {
+    id: memProcess
+    command: ["sh", "-c", "free -g | awk '/Mem:/ {used=$3; total=$2; pct=(total>0)?(used / total*100):0; printf \"%.1f/%.1f GiB (%.0f%%)\", used, total, pct}'"]
+    running: true
+
+    stdout: SplitParser {
+      onRead: data => {
+        root.memoryUsage = data.trim();
+      }
+    }
+  }
+
+  Timer {
+    interval: 5000
+    running: true
+    repeat: true
+    onTriggered: memProcess.running = true
+  }
+
+  // Disk process
+  Process {
+    id: diskProcess
+    command: ["sh", "-c", "df -h / /home 2>/dev/null | awk 'NR>1 {printf \"%s (%s) \", $6, $5}' | sed 's/ $//'"]
+    running: true
+
+    stdout: SplitParser {
+      onRead: data => {
+        root.diskUsage = data.trim();
+      }
+    }
+  }
+
+  Timer {
+    interval: 10000
+    running: true
+    repeat: true
+    onTriggered: {
+      memProcess.running = true
+      diskProcess.running = true
+    }
+  }
+
+  // Weather process
+  Process {
+    id: weatherProcess
+    command: ["curl", "-s", "wttr.in/Jakarta?format=4"]
+    running: true
+
+    stdout: SplitParser {
+      onRead: data => {
+        root.weatherInfo = data.trim();
+      }
+    }
+  }
+
+  // Timer
+  Timer {
+    interval: 900000
+    running: true
+    repeat: true
+    onTriggered: {
+      memProcess.running = true
+      diskProcess.running = true
+      weatherProcess.running = true
+    }
+  }
 
   // MPRIS active player
   property var activePlayer: {
@@ -100,10 +171,10 @@ Scope {
         anchors.leftMargin: 10
         anchors.rightMargin: 10
 
-        // Left section: Time + Workspaces + Now Playing
+        // Right section: Time + Workspaces + Now Playing + Weather
         Row {
-          id: leftSection
-          anchors.left: parent.left
+          id: rightSection
+          anchors.right: parent.right
           anchors.verticalCenter: parent.verticalCenter
           spacing: 8
 
@@ -256,6 +327,32 @@ Scope {
               onClicked: root.activePlayer.togglePlaying()
             }
           }
+          // Weather
+          Rectangle {
+            height: 24
+            width: weatherContent.width + 16 
+            radius: 12
+            color: root.theme.bgSurface
+            Accessible.role: Accessible.StaticText
+            Accessible.name: "Weather: " + root.weatherInfo
+            Row {
+              id: weatherContent
+              anchors.centerIn: parent
+              spacing: 6
+              Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: root.weatherInfo
+                color: root.theme.textPrimary
+                font.pixelSize: 11
+                font.family: root.font
+              }
+            }
+            MouseArea {
+              anchors.fill: parent
+              cursorShape: Qt.PointingHandCursor
+              onClicked: weatherProcess.running = true
+            }
+          }
         }
 
         // Center section: Window Title (truly centered in bar)
@@ -277,13 +374,53 @@ Scope {
           }
         }
 
-        // Right section: System Info + System Tray
+        // Left section: System Info + System Tray
         Row {
-          id: rightSection
-          anchors.right: parent.right
+          id: leftSection
+          anchors.left: parent.left
           anchors.verticalCenter: parent.verticalCenter
           spacing: 8
 
+          // Network
+            Rectangle {
+              height: 24
+              width: netContent.width + 12
+              radius: 12
+              color: root.theme.bgSurface
+              Accessible.role: Accessible.StaticText
+              Accessible.name: {
+                if (SystemInfo.networkType === "ethernet") return "Network: Ethernet"
+                if (SystemInfo.networkType === "wifi") return "Network: WiFi " + SystemInfo.networkInfo
+                return "Network: Disconnected"
+              }
+
+              Row {
+                id: netContent
+                anchors.centerIn: parent
+                spacing: 6
+
+                Text {
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: {
+                    if (SystemInfo.networkType === "ethernet") return "󰈀"
+                    if (SystemInfo.networkType === "wifi") return "󰖩"
+                    return "󰖪"
+                  }
+                  color: SystemInfo.networkType === "disconnected" ? root.theme.textMuted : root.theme.accentGreen
+                  font.pixelSize: 14
+                  font.family: root.font
+                }
+                Text {
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: SystemInfo.networkInfo
+                  color: root.theme.textPrimary
+                  font.pixelSize: 11
+                  font.family: root.font
+                }
+              }
+            }
+
+            
           // Volume
           Rectangle {
             height: 24
@@ -442,75 +579,36 @@ Scope {
               }
             }
 
-            // Network
-            Rectangle {
-              height: 24
-              width: netContent.width + 12
-              radius: 12
-              color: root.theme.bgSurface
-              Accessible.role: Accessible.StaticText
-              Accessible.name: {
-                if (SystemInfo.networkType === "ethernet") return "Network: Ethernet"
-                if (SystemInfo.networkType === "wifi") return "Network: WiFi " + SystemInfo.networkInfo
-                return "Network: Disconnected"
-              }
+            // Battery (since im on PC, battery set to off)
+            // Rectangle {
+            //   height: 24
+            //   width: battContent.width + 12
+            //   radius: 12
+            //   color: root.theme.bgSurface
+            //   Accessible.role: Accessible.StaticText
+            //   Accessible.name: "Battery: " + SystemInfo.batteryLevel
 
-              Row {
-                id: netContent
-                anchors.centerIn: parent
-                spacing: 6
+            //   Row {
+            //     id: battContent
+            //     anchors.centerIn: parent
+            //     spacing: 6
 
-                Text {
-                  anchors.verticalCenter: parent.verticalCenter
-                  text: {
-                    if (SystemInfo.networkType === "ethernet") return "󰈀"
-                    if (SystemInfo.networkType === "wifi") return "󰖩"
-                    return "󰖪"
-                  }
-                  color: SystemInfo.networkType === "disconnected" ? root.theme.textMuted : root.theme.accentGreen
-                  font.pixelSize: 14
-                  font.family: root.font
-                }
-                Text {
-                  anchors.verticalCenter: parent.verticalCenter
-                  text: SystemInfo.networkInfo
-                  color: root.theme.textPrimary
-                  font.pixelSize: 11
-                  font.family: root.font
-                }
-              }
-            }
-
-            // Battery
-            Rectangle {
-              height: 24
-              width: battContent.width + 12
-              radius: 12
-              color: root.theme.bgSurface
-              Accessible.role: Accessible.StaticText
-              Accessible.name: "Battery: " + SystemInfo.batteryLevel
-
-              Row {
-                id: battContent
-                anchors.centerIn: parent
-                spacing: 6
-
-                Text {
-                  anchors.verticalCenter: parent.verticalCenter
-                  text: SystemInfo.batteryIcon
-                  color: sysInfo.batteryColor
-                  font.pixelSize: 14
-                  font.family: root.font
-                }
-                Text {
-                  anchors.verticalCenter: parent.verticalCenter
-                  text: SystemInfo.batteryLevel
-                  color: root.theme.textPrimary
-                  font.pixelSize: 11
-                  font.family: root.font
-                }
-              }
-            }
+            //     Text {
+            //       anchors.verticalCenter: parent.verticalCenter
+            //       text: SystemInfo.batteryIcon
+            //       color: sysInfo.batteryColor
+            //       font.pixelSize: 14
+            //       font.family: root.font
+            //     }
+            //     Text {
+            //       anchors.verticalCenter: parent.verticalCenter
+            //       text: SystemInfo.batteryLevel
+            //       color: root.theme.textPrimary
+            //       font.pixelSize: 11
+            //       font.family: root.font
+            //     }
+            //   }
+            // }
 
             // Temperature
             Rectangle {
@@ -536,6 +634,90 @@ Scope {
                 Text {
                   anchors.verticalCenter: parent.verticalCenter
                   text: SystemInfo.temperature
+                  color: root.theme.textPrimary
+                  font.pixelSize: 11
+                  font.family: root.font
+                }
+              }
+            }
+            // Memory Usage
+            Rectangle {
+              height: 24
+              width: memContent.width + 12
+              radius: 12
+              color: root.theme.bgSurface
+              Accessible.role: Accessible.StaticText
+              Accessible.name: "Memory Usage: " + root.memoryUsage
+              
+              Row {
+                id: memContent
+                anchors.centerIn: parent
+                spacing: 6
+                
+                Text {
+                  anchors.verticalCenter: parent.vertical
+                  text: ""
+                  color: root.theme.accentPrimary
+                  font.pixelSize: 14
+                  font.family: root.font
+                }
+                
+                Text {
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: root.memoryUsage
+                  color: root.theme.textPrimary
+                  font.pixelSize: 11
+                  font.family: root.font
+                }
+              }
+            }
+
+            // Disk usage
+            Rectangle {
+              id: diskButton
+              height: 24
+              width: diskContent.width + 12
+              radius: 12
+              color: root.theme.bgSurface
+              
+              Accessible.role: Accessible.StaticText
+              Accessible.name: "/ (" + root.diskUsage + ")"
+
+              MouseArea {
+                id: mouseArea
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+              }
+
+              // Glow when hover
+              Rectangle {
+                anchors.fill: parent
+                radius: parent.radius
+                color: root.theme.accentPrimary 
+                opacity: mouseArea.containsMouse ? 0.15 : 0.0
+
+                Behavior on opacity {
+                  NumberAnimation { duration: 150 }
+                }
+              }
+
+              Row {
+                id: diskContent
+                anchors.centerIn: parent
+                spacing: 6
+
+                Text {
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: "" 
+                  color: root.theme.accentPrimary 
+                  font.pixelSize: 14
+                  font.family: root.font
+                }
+
+                Text {
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: "" + root.diskUsage + "" 
                   color: root.theme.textPrimary
                   font.pixelSize: 11
                   font.family: root.font
@@ -612,7 +794,6 @@ Scope {
           }
         }
       }
-
     }
   }
 }
