@@ -8,8 +8,9 @@ import QtQuick.Layouts
 
 Scope {
   id: root
-  property var theme: DefaultTheme {}
+  property var theme: Theme
   property string font: "Hack Nerd Font"
+  property bool commandMode: false
 
   IpcHandler {
     target: "launcher"
@@ -17,14 +18,30 @@ Scope {
     function toggle(): void {
       launcherPanel.visible = !launcherPanel.visible
       if (launcherPanel.visible) {
+        root.commandMode = false
         searchInput.text = ""
-        selectedIndex = -1
+        commandInput.text = ""
+        selectedIndex = 0
         searchInput.forceActiveFocus()
       }
     }
   }
 
   property int selectedIndex: 0
+
+  // Runner process for executing Linux commands
+  Process {
+    id: cmdRunner
+  }
+
+  function runCommand(cmdText) {
+    const trimmed = cmdText.trim();
+    if (trimmed !== "") {
+      cmdRunner.command = ["sh", "-c", trimmed];
+      cmdRunner.running = true;
+      launcherPanel.visible = false;
+    }
+  }
 
   ScriptModel {
     id: filteredApps
@@ -51,8 +68,10 @@ Scope {
   }
 
   function launchApp(entry) {
-    entry.execute();
-    launcherPanel.visible = false;
+    if (entry) {
+      entry.execute();
+      launcherPanel.visible = false;
+    }
   }
 
   PanelWindow {
@@ -89,12 +108,15 @@ Scope {
     Rectangle {
       id: launcherBox
       anchors.centerIn: parent
-      width: 580
+      width: 620
       height: 480
       radius: 16
       color: root.theme.bgBase
       border.color: root.theme.bgBorder
       border.width: 1
+
+      Behavior on color { ColorAnimation { duration: 150 } }
+      Behavior on border.color { ColorAnimation { duration: 150 } }
 
       ColumnLayout {
         anchors.fill: parent
@@ -102,97 +124,271 @@ Scope {
         spacing: 12
 
         // Header
-        Text {
-          text: "  Applications"
-          color: root.theme.accentPrimary
-          font.pixelSize: 14
-          font.family: root.font
-          font.bold: true
-        }
-
-        // Search bar
-        Rectangle {
+        RowLayout {
           Layout.fillWidth: true
-          height: 44
-          radius: 10
-          color: root.theme.bgSurface
-          border.color: searchInput.activeFocus ? root.theme.accentPrimary : root.theme.bgBorder
-          border.width: 1
+          spacing: 12
 
-          Behavior on border.color {
-            ColorAnimation { duration: 150 }
+          Text {
+            text: root.commandMode ? "  Execute Command" : "  Applications"
+            color: root.theme.accentPrimary
+            font.pixelSize: 14
+            font.family: root.font
+            font.bold: true
+
+            Behavior on color { ColorAnimation { duration: 150 } }
           }
 
-          RowLayout {
-            anchors.fill: parent
-            anchors.leftMargin: 14
-            anchors.rightMargin: 14
-            spacing: 10
+          Item { Layout.fillWidth: true }
 
-            Text {
-              text: ""
-              color: root.theme.textMuted
-              font.pixelSize: 16
-              font.family: root.font
-              Layout.alignment: Qt.AlignVCenter
-            }
+          // Applications | Commands column
+          Rectangle {
+            id: modeToggle
+            implicitWidth: modeRow.implicitWidth + 6
+            implicitHeight: 26
+            radius: 8
+            color: root.theme.bgSurface
+            border.color: root.theme.bgBorder
+            border.width: 1
 
-            TextInput {
-              id: searchInput
-              Layout.fillWidth: true
-              Layout.alignment: Qt.AlignVCenter
-              color: root.theme.textPrimary
-              font.pixelSize: 15
-              font.family: root.font
-              clip: true
-              focus: true
-              Accessible.role: Accessible.EditableText
-              Accessible.name: "Search applications"
+            Behavior on color { ColorAnimation { duration: 150 } }
+            Behavior on border.color { ColorAnimation { duration: 150 } }
 
-              Text {
-                anchors.fill: parent
-                text: "Type to search..."
-                color: root.theme.textMuted
-                font: parent.font
-                visible: !parent.text && !parent.activeFocus
-                verticalAlignment: Text.AlignVCenter
+            RowLayout {
+              id: modeRow
+              anchors.fill: parent
+              anchors.margins: 3
+              spacing: 3
+
+              // Applications tab
+              Rectangle {
+                Layout.fillHeight: true
+                implicitWidth: appsLabel.implicitWidth + 20
+                radius: 6
+                color: !root.commandMode ? root.theme.bgSelected : "transparent"
+
+                Behavior on color { ColorAnimation { duration: 150 } }
+
+                Text {
+                  id: appsLabel
+                  anchors.centerIn: parent
+                  verticalAlignment: Text.AlignVCenter
+                  horizontalAlignment: Text.AlignHCenter
+                  text: "Applications"
+                  color: !root.commandMode ? root.theme.accentPrimary : root.theme.textMuted
+                  font.pixelSize: 11
+                  font.family: root.font
+                  font.bold: !root.commandMode
+
+                  Behavior on color { ColorAnimation { duration: 150 } }
+                }
+
+                MouseArea {
+                  anchors.fill: parent
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: {
+                    root.commandMode = false;
+                    searchInput.forceActiveFocus();
+                  }
+                }
               }
 
-              onTextChanged: root.selectedIndex = text === "" ? -1 : 0
+              // Commands tab
+              Rectangle {
+                Layout.fillHeight: true
+                implicitWidth: cmdsLabel.implicitWidth + 20
+                radius: 6
+                color: root.commandMode ? root.theme.bgSelected : "transparent"
 
-              Keys.onEscapePressed: launcherPanel.visible = false
+                Behavior on color { ColorAnimation { duration: 150 } }
 
-              Keys.onPressed: event => {
-                if (event.key === Qt.Key_Down) {
-                  event.accepted = true;
-                  root.selectedIndex = Math.min(root.selectedIndex + 1, resultsList.count - 1);
-                  resultsList.positionViewAtIndex(root.selectedIndex, ListView.Contain);
-                } else if (event.key === Qt.Key_Up) {
-                  event.accepted = true;
-                  root.selectedIndex = Math.max(root.selectedIndex - 1, 0);
-                  resultsList.positionViewAtIndex(root.selectedIndex, ListView.Contain);
-                } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                  event.accepted = true;
-                  if (root.selectedIndex >= 0) {
-                    const entry = filteredApps.values[root.selectedIndex];
-                    if (entry) root.launchApp(entry);
+                Text {
+                  id: cmdsLabel
+                  anchors.centerIn: parent
+                  verticalAlignment: Text.AlignVCenter
+                  horizontalAlignment: Text.AlignHCenter
+                  text: "Commands"
+                  color: root.commandMode ? root.theme.accentPrimary : root.theme.textMuted
+                  font.pixelSize: 11
+                  font.family: root.font
+                  font.bold: root.commandMode
+
+                  Behavior on color { ColorAnimation { duration: 150 } }
+                }
+
+                MouseArea {
+                  anchors.fill: parent
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: {
+                    root.commandMode = true;
+                    commandInput.forceActiveFocus();
                   }
-                } else if (event.key === Qt.Key_Tab) {
-                  event.accepted = true;
-                  root.selectedIndex = Math.min(root.selectedIndex + 1, resultsList.count - 1);
-                  resultsList.positionViewAtIndex(root.selectedIndex, ListView.Contain);
                 }
               }
             }
           }
         }
 
-        // Results count
-        Text {
-          text: resultsList.count + " application" + (resultsList.count !== 1 ? "s" : "")
-          color: root.theme.textMuted
-          font.pixelSize: 11
-          font.family: root.font
+        // Search bar
+        Rectangle {
+          Layout.fillWidth: true
+          height: 36
+          radius: 8
+          visible: !root.commandMode
+          color: root.theme.bgSurface
+          border.color: searchInput.activeFocus ? root.theme.accentPrimary : root.theme.bgBorder
+          border.width: 1
+
+          Behavior on color { ColorAnimation { duration: 150 } }
+          Behavior on border.color { ColorAnimation { duration: 150 } }
+
+          RowLayout {
+            anchors.fill: parent
+            anchors.leftMargin: 10
+            anchors.rightMargin: 10
+            spacing: 8
+
+            Text {
+              text: ""
+              color: root.theme.textMuted
+              font.pixelSize: 13
+              font.family: root.font
+              Layout.alignment: Qt.AlignVCenter
+
+              Behavior on color { ColorAnimation { duration: 150 } }
+            }
+
+            Item {
+              Layout.fillWidth: true
+              Layout.alignment: Qt.AlignVCenter
+              implicitHeight: searchInput.implicitHeight
+
+              TextInput {
+                id: searchInput
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                color: root.theme.textPrimary
+                font.pixelSize: 13
+                font.family: root.font
+                clip: true
+                selectByMouse: true
+                Accessible.role: Accessible.EditableText
+                Accessible.name: "Search applications"
+
+                onTextChanged: {
+                  root.selectedIndex = 0
+                  resultsList.positionViewAtIndex(0, ListView.Beginning)
+                }
+
+                Keys.onEscapePressed: launcherPanel.visible = false
+
+                Keys.onPressed: event => {
+                  if (event.key === Qt.Key_Down) {
+                    event.accepted = true;
+                    root.selectedIndex = Math.min(root.selectedIndex + 1, resultsList.count - 1);
+                    resultsList.positionViewAtIndex(root.selectedIndex, ListView.Contain);
+                  } else if (event.key === Qt.Key_Up) {
+                    event.accepted = true;
+                    root.selectedIndex = Math.max(root.selectedIndex - 1, 0);
+                    resultsList.positionViewAtIndex(root.selectedIndex, ListView.Contain);
+                  } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                    event.accepted = true;
+                    if (root.selectedIndex >= 0 && root.selectedIndex < filteredApps.values.length) {
+                      const entry = filteredApps.values[root.selectedIndex];
+                      if (entry) root.launchApp(entry);
+                    }
+                  } else if (event.key === Qt.Key_Tab) {
+                    event.accepted = true;
+                    root.selectedIndex = Math.min(root.selectedIndex + 1, resultsList.count - 1);
+                    resultsList.positionViewAtIndex(root.selectedIndex, ListView.Contain);
+                  }
+                }
+              }
+
+              Text {
+                text: "Search applications..."
+                color: root.theme.textMuted
+                font.pixelSize: 13
+                font.family: root.font
+                anchors.verticalCenter: parent.verticalCenter
+                visible: searchInput.text === ""
+
+                Behavior on color { ColorAnimation { duration: 150 } }
+              }
+            }
+          }
+        }
+
+        // Command Bar
+        Rectangle {
+          Layout.fillWidth: true
+          height: 36
+          radius: 8
+          visible: root.commandMode
+          color: root.theme.bgSurface
+          border.color: commandInput.activeFocus ? root.theme.accentPrimary : root.theme.bgBorder
+          border.width: 1
+
+          Behavior on color { ColorAnimation { duration: 150 } }
+          Behavior on border.color { ColorAnimation { duration: 150 } }
+
+          RowLayout {
+            anchors.fill: parent
+            anchors.leftMargin: 10
+            anchors.rightMargin: 10
+            spacing: 8
+
+            Text {
+              text: "$"
+              color: root.theme.accentPrimary
+              font.pixelSize: 13
+              font.family: root.font
+              font.bold: true
+              Layout.alignment: Qt.AlignVCenter
+
+              Behavior on color { ColorAnimation { duration: 150 } }
+            }
+
+            Item {
+              Layout.fillWidth: true
+              Layout.alignment: Qt.AlignVCenter
+              implicitHeight: commandInput.implicitHeight
+
+              TextInput {
+                id: commandInput
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                color: root.theme.textPrimary
+                font.pixelSize: 13
+                font.family: root.font
+                clip: true
+                selectByMouse: true
+                Accessible.role: Accessible.EditableText
+                Accessible.name: "Execute shell command"
+
+                Keys.onEscapePressed: launcherPanel.visible = false
+
+                Keys.onPressed: event => {
+                  if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                    event.accepted = true;
+                    root.runCommand(commandInput.text);
+                  }
+                }
+              }
+
+              Text {
+                text: "Type shell command (e.g. htop, kitty, reboot)..."
+                color: root.theme.textMuted
+                font.pixelSize: 13
+                font.family: root.font
+                anchors.verticalCenter: parent.verticalCenter
+                visible: commandInput.text === ""
+
+                Behavior on color { ColorAnimation { duration: 150 } }
+              }
+            }
+          }
         }
 
         // App list
@@ -200,6 +396,7 @@ Scope {
           id: resultsList
           Layout.fillWidth: true
           Layout.fillHeight: true
+          visible: !root.commandMode
           model: filteredApps
           clip: true
           spacing: 2
@@ -211,7 +408,9 @@ Scope {
           highlight: Rectangle {
             radius: 8
             color: root.theme.bgSelected
-            visible: root.selectedIndex >= 0
+            visible: resultsList.count > 0 && root.selectedIndex >= 0
+
+            Behavior on color { ColorAnimation { duration: 150 } }
 
             Rectangle {
               width: 3
@@ -221,6 +420,8 @@ Scope {
               anchors.left: parent.left
               anchors.leftMargin: 2
               anchors.verticalCenter: parent.verticalCenter
+
+              Behavior on color { ColorAnimation { duration: 150 } }
             }
           }
 
@@ -235,18 +436,20 @@ Scope {
             width: resultsList.width
             height: 44
             radius: 8
-            color: "transparent"
+            color: hoverArea.containsMouse && root.selectedIndex !== index ? root.theme.bgHover : "transparent"
+
+            Behavior on color { ColorAnimation { duration: 100 } }
 
             RowLayout {
               anchors.fill: parent
-              anchors.leftMargin: 12
-              anchors.rightMargin: 12
+              anchors.leftMargin: 14
+              anchors.rightMargin: 14
               spacing: 12
 
               // App icon
               Item {
-                width: 28
-                height: 28
+                width: 24
+                height: 24
                 Layout.alignment: Qt.AlignVCenter
 
                 IconImage {
@@ -260,9 +463,11 @@ Scope {
                   anchors.centerIn: parent
                   text: ""
                   color: root.theme.accentPrimary
-                  font.pixelSize: 20
+                  font.pixelSize: 18
                   font.family: root.font
                   visible: (delegateRoot.modelData.icon ?? "") === ""
+
+                  Behavior on color { ColorAnimation { duration: 150 } }
                 }
               }
 
@@ -280,6 +485,8 @@ Scope {
                   font.bold: root.selectedIndex === delegateRoot.index
                   elide: Text.ElideRight
                   Layout.fillWidth: true
+
+                  Behavior on color { ColorAnimation { duration: 150 } }
                 }
 
                 Text {
@@ -290,39 +497,68 @@ Scope {
                   elide: Text.ElideRight
                   Layout.fillWidth: true
                   visible: text !== ""
+
+                  Behavior on color { ColorAnimation { duration: 150 } }
                 }
               }
             }
 
             MouseArea {
+              id: hoverArea
               anchors.fill: parent
               hoverEnabled: true
               cursorShape: Qt.PointingHandCursor
               onClicked: root.launchApp(delegateRoot.modelData)
-              onPositionChanged: root.selectedIndex = delegateRoot.index
+              onEntered: root.selectedIndex = delegateRoot.index
             }
           }
 
           // Empty state
           Text {
             anchors.centerIn: parent
-            text: "  No applications found"
+            text: "No applications found"
             color: root.theme.textMuted
-            font.pixelSize: 14
+            font.pixelSize: 13
             font.family: root.font
             visible: resultsList.count === 0 && searchInput.text !== ""
+
+            Behavior on color { ColorAnimation { duration: 150 } }
           }
         }
 
-        // Footer hint
+        // Commands hint
+        Item {
+          Layout.fillWidth: true
+          Layout.fillHeight: true
+          visible: root.commandMode
+
+          ColumnLayout {
+            anchors.centerIn: parent
+            spacing: 8
+
+            Text {
+              text: "Enter a command and press Return to run"
+              color: root.theme.textMuted
+              font.pixelSize: 13
+              font.family: root.font
+              Layout.alignment: Qt.AlignHCenter
+
+              Behavior on color { ColorAnimation { duration: 150 } }
+            }
+          }
+        }
+
+        // Footer
         RowLayout {
           Layout.fillWidth: true
           spacing: 16
 
           Row {
             spacing: 4
+            visible: !root.commandMode
             Rectangle {
               width: hintUp.width + 8; height: 18; radius: 4; color: root.theme.bgSurface
+              Behavior on color { ColorAnimation { duration: 150 } }
               Text { id: hintUp; anchors.centerIn: parent; text: "↑↓"; color: root.theme.textMuted; font.pixelSize: 10; font.family: root.font }
             }
             Text { text: "navigate"; color: root.theme.textMuted; font.pixelSize: 10; font.family: root.font; anchors.verticalCenter: parent.verticalCenter }
@@ -332,15 +568,17 @@ Scope {
             spacing: 4
             Rectangle {
               width: hintEnter.width + 8; height: 18; radius: 4; color: root.theme.bgSurface
+              Behavior on color { ColorAnimation { duration: 150 } }
               Text { id: hintEnter; anchors.centerIn: parent; text: "⏎"; color: root.theme.textMuted; font.pixelSize: 10; font.family: root.font }
             }
-            Text { text: "launch"; color: root.theme.textMuted; font.pixelSize: 10; font.family: root.font; anchors.verticalCenter: parent.verticalCenter }
+            Text { text: root.commandMode ? "execute" : "launch"; color: root.theme.textMuted; font.pixelSize: 10; font.family: root.font; anchors.verticalCenter: parent.verticalCenter }
           }
 
           Row {
             spacing: 4
             Rectangle {
               width: hintEsc.width + 8; height: 18; radius: 4; color: root.theme.bgSurface
+              Behavior on color { ColorAnimation { duration: 150 } }
               Text { id: hintEsc; anchors.centerIn: parent; text: "esc"; color: root.theme.textMuted; font.pixelSize: 10; font.family: root.font }
             }
             Text { text: "close"; color: root.theme.textMuted; font.pixelSize: 10; font.family: root.font; anchors.verticalCenter: parent.verticalCenter }
