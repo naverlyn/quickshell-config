@@ -21,6 +21,10 @@ Scope {
         function dnd_toggle(): void {
             NotificationService.doNotDisturb = !NotificationService.doNotDisturb;
         }
+
+        function dnd_off(): void {
+            NotificationService.doNotDisturb = false;
+        }
     }
 
     Variants {
@@ -30,10 +34,12 @@ Scope {
             id: notifWindow
             required property var modelData
             screen: modelData
-
-            visible: NotificationService.notifications.length > 0
+            visible: !NotificationService.doNotDisturb && NotificationService.notifications.length > 0
             focusable: false
             color: "transparent"
+            // visible: NotificationService.notifications.length > 0
+            // focusable: false
+            // color: "transparent"
 
             WlrLayershell.layer: WlrLayer.Overlay
             WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
