@@ -7,6 +7,9 @@ import Quickshell.Services.SystemTray
 import Quickshell.Io
 import Quickshell.Services.Mpris
 import Quickshell.Services.Pipewire
+import Quickshell.Services.Notifications
+
+
 Scope {
   id: root
   property var theme: DefaultTheme {}
@@ -164,7 +167,7 @@ Scope {
       }
 
       implicitHeight: 32
-      color: root.theme.bgBase
+      color: '#363c3c3c'
 
       Item {
         anchors.fill: parent
@@ -178,6 +181,72 @@ Scope {
           anchors.verticalCenter: parent.verticalCenter
           spacing: 8
 
+          // System Tray
+          // There's an issue that some tray not display correctly.
+          // https://github.com/quickshell-mirror/quickshell/issues/26
+          // https://github.com/quickshell-mirror/quickshell/pull/777
+          Rectangle {
+            implicitHeight: 24
+            implicitWidth: trayIcons.implicitWidth + 4
+            radius: 12
+            color: root.theme.bgSurface
+
+            RowLayout {
+              id: trayIcons
+              anchors.centerIn: parent
+              spacing: 2
+
+              Repeater {
+                model: SystemTray.items
+
+                MouseArea {
+                  id: trayDelegate
+                  required property SystemTrayItem modelData
+
+                  Accessible.role: Accessible.Button
+                  Accessible.name: modelData.tooltipTitle || modelData.title || "System tray item"
+
+                  Layout.preferredWidth: 24
+                  Layout.preferredHeight: 24
+
+                  acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
+
+                  onClicked: (mouse) => {
+                    if (mouse.button === Qt.LeftButton) {
+                      modelData.activate()
+                    } else if (mouse.button === Qt.RightButton) {
+                      if (modelData.hasMenu) {
+                        menuAnchor.open()
+                      }
+                    } else if (mouse.button === Qt.MiddleButton) {
+                      modelData.secondaryActivate()
+                    }
+                  }
+
+                  IconImage {
+                    anchors.centerIn: parent
+                    source: trayDelegate.modelData.icon
+                    implicitSize: 16
+                  }
+
+                  QsMenuAnchor {
+                    id: menuAnchor
+                    menu: trayDelegate.modelData.menu
+
+                    anchor.window: trayDelegate.QsWindow.window
+                    anchor.adjustment: PopupAdjustment.Flip
+                    anchor.onAnchoring: {
+                      const window = trayDelegate.QsWindow.window;
+                      const widgetRect = window.contentItem.mapFromItem(
+                        trayDelegate, 0, trayDelegate.height,
+                        trayDelegate.width, trayDelegate.height);
+                      menuAnchor.anchor.rect = widgetRect;
+                    }
+                  }
+                }
+              }
+            }
+          }
           // Time
           Rectangle {
             height: 24
@@ -356,10 +425,12 @@ Scope {
         }
 
         // Center section: Window Title (truly centered in bar)
-        Item {
+        Rectangle {
           anchors.centerIn: parent
-          height: parent.height
+          height: 24
           width: Math.max(0, parent.width - 2 * Math.max(leftSection.width, rightSection.width) - 32)
+          radius: 12
+          color: root.theme.bgSurface
 
           Text {
             Accessible.role: Accessible.StaticText
@@ -380,7 +451,36 @@ Scope {
           anchors.left: parent.left
           anchors.verticalCenter: parent.verticalCenter
           spacing: 8
+          // testRectangle
+          // Rectangle {
+          //   id: testButtonContent
+          //   height: 24
+          //   width:  testContent.implicitWidth + 16
+          //   radius: 12
+          //   color: root.theme.bgSurface
 
+          //   Row {
+          //     id: testContent
+          //     anchors.centerIn: parent
+          //     spacing: 6
+
+          //     Text {
+          //       anchors.verticalCenter: parent.verticalCenter
+          //       text: "󰀻"
+          //       color: root.theme.textPrimary
+          //       font.pixelSize: 14
+          //       font.family: root.font
+          //     }
+              
+          //     Text {
+          //       anchors.verticalCenter: parent.verticalCenter
+          //       text: "Apps"
+          //       color: root.theme.textPrimary
+          //       font.pixelSize: 11
+          //       font.family: root.font
+          //     }
+          //   }
+          // }
           // Network
             Rectangle {
               height: 24
@@ -724,73 +824,36 @@ Scope {
                 }
               }
             }
-          }
+            // Rectangle {
+            //   height: 24
+            //   width: diskContent.width + 12
+            //   radius: 12
+            //   color: root.theme.bgSurface
+            //   Accessible.role: Accessible.StaticText
+            //   Accessible.name: "/ (" + root.diskUsage + ")"
 
-          // System Tray
-          // There's an issue that some tray not display correctly.
-          // https://github.com/quickshell-mirror/quickshell/issues/26
-          // https://github.com/quickshell-mirror/quickshell/pull/777
-          Rectangle {
-            implicitHeight: 24
-            implicitWidth: trayIcons.implicitWidth + 4
-            radius: 12
-            color: root.theme.bgSurface
+            //   Row {
+            //     id: diskContent
+            //     anchors.centerIn: parent
+            //     spacing: 6
 
-            RowLayout {
-              id: trayIcons
-              anchors.centerIn: parent
-              spacing: 2
+            //     Text {
+            //       anchors.verticalCenter: parent.verticalCenter
+            //       text: "" // Ikon Harddisk (Nerd Fonts)
+            //       color: root.theme.accentPrimary // Atau sesuaikan warna tema Anda
+            //       font.pixelSize: 14
+            //       font.family: root.font
+            //     }
 
-              Repeater {
-                model: SystemTray.items
-
-                MouseArea {
-                  id: trayDelegate
-                  required property SystemTrayItem modelData
-
-                  Accessible.role: Accessible.Button
-                  Accessible.name: modelData.tooltipTitle || modelData.title || "System tray item"
-
-                  Layout.preferredWidth: 24
-                  Layout.preferredHeight: 24
-
-                  acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
-
-                  onClicked: (mouse) => {
-                    if (mouse.button === Qt.LeftButton) {
-                      modelData.activate()
-                    } else if (mouse.button === Qt.RightButton) {
-                      if (modelData.hasMenu) {
-                        menuAnchor.open()
-                      }
-                    } else if (mouse.button === Qt.MiddleButton) {
-                      modelData.secondaryActivate()
-                    }
-                  }
-
-                  IconImage {
-                    anchors.centerIn: parent
-                    source: trayDelegate.modelData.icon
-                    implicitSize: 16
-                  }
-
-                  QsMenuAnchor {
-                    id: menuAnchor
-                    menu: trayDelegate.modelData.menu
-
-                    anchor.window: trayDelegate.QsWindow.window
-                    anchor.adjustment: PopupAdjustment.Flip
-                    anchor.onAnchoring: {
-                      const window = trayDelegate.QsWindow.window;
-                      const widgetRect = window.contentItem.mapFromItem(
-                        trayDelegate, 0, trayDelegate.height,
-                        trayDelegate.width, trayDelegate.height);
-                      menuAnchor.anchor.rect = widgetRect;
-                    }
-                  }
-                }
-              }
-            }
+            //     Text {
+            //       anchors.verticalCenter: parent.verticalCenter
+            //       text: "" + root.diskUsage + "" // Format output: / (90%)
+            //       color: root.theme.textPrimary
+            //       font.pixelSize: 11
+            //       font.family: root.font
+            //     }
+            //   }
+            // }
           }
         }
       }
